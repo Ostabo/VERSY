@@ -4,10 +4,10 @@ import aqua.blatt1.common.msgtypes.DeregisterRequest;
 import aqua.blatt1.common.msgtypes.HandoffRequest;
 import aqua.blatt1.common.msgtypes.RegisterRequest;
 import aqua.blatt1.common.msgtypes.RegisterResponse;
+import aqua.blatt2.broker.PoisonPill;
 import messaging.Endpoint;
 import messaging.Message;
 
-import javax.swing.*;
 import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
@@ -32,16 +32,16 @@ public class Broker {
     private void broker() {
         var executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
-        executor.execute(() -> {
-            final int confirmed = JOptionPane.showConfirmDialog(
-                    null,
-                    "Close broker?",
-                    "Broker",
-                    JOptionPane.OK_CANCEL_OPTION
-            );
-            if (confirmed == JOptionPane.OK_OPTION)
-                stopRequested = true;
-        });
+        //executor.execute(() -> {
+        //    final int confirmed = JOptionPane.showConfirmDialog(
+        //            null,
+        //            "Close broker?",
+        //            "Broker",
+        //            JOptionPane.OK_CANCEL_OPTION
+        //    );
+        //    if (confirmed == JOptionPane.OK_OPTION)
+        //        stopRequested = true;
+        //});
 
         while (!stopRequested) {
             final Message msg = ENDPOINT.nonBlockingReceive();
@@ -55,12 +55,14 @@ public class Broker {
         DEREGISTER,
         HANDOFF,
         REGISTER,
+        POISON,
         UNKNOWN;
 
         public static MsgType valueOf(Serializable classType) {
             if (classType instanceof DeregisterRequest) return DEREGISTER;
             if (classType instanceof HandoffRequest) return HANDOFF;
             if (classType instanceof RegisterRequest) return REGISTER;
+            if (classType instanceof PoisonPill) return POISON;
             return UNKNOWN;
         }
     }
@@ -79,10 +81,9 @@ public class Broker {
                 case REGISTER -> register(msg.getSender());
                 case DEREGISTER -> deregister(((DeregisterRequest) msg.getPayload()).getId());
                 case HANDOFF -> handoffFish(msg.getSender(), (HandoffRequest) msg.getPayload());
-                case UNKNOWN -> {
-                    System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
-                    stopRequested = true;
-                }
+                case POISON -> stopRequested = true;
+                case UNKNOWN ->
+                        System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
             }
         }
 
