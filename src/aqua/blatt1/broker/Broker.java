@@ -7,6 +7,7 @@ import aqua.blatt1.common.msgtypes.RegisterResponse;
 import messaging.Endpoint;
 import messaging.Message;
 
+import javax.swing.*;
 import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
@@ -22,7 +23,7 @@ public class Broker {
 
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
     private final ReadWriteLock clientLock = new ReentrantReadWriteLock();
-    private volatile boolean done = false;
+    private volatile boolean stopRequested = false;
 
     public static void main(String[] args) {
         new Broker().broker();
@@ -30,7 +31,19 @@ public class Broker {
 
     private void broker() {
         var executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-        while (!done) {
+
+        executor.execute(() -> {
+            final int confirmed = JOptionPane.showConfirmDialog(
+                    null,
+                    "Close broker?",
+                    "Broker",
+                    JOptionPane.OK_CANCEL_OPTION
+            );
+            if (confirmed == JOptionPane.OK_OPTION)
+                stopRequested = true;
+        });
+
+        while (!stopRequested) {
             final Message msg = ENDPOINT.nonBlockingReceive();
             if (msg != null)
                 executor.execute(new BrokerTask(msg));
@@ -68,7 +81,7 @@ public class Broker {
                 case HANDOFF -> handoffFish(msg.getSender(), (HandoffRequest) msg.getPayload());
                 case UNKNOWN -> {
                     System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
-                    done = true;
+                    stopRequested = true;
                 }
             }
         }
