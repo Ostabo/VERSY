@@ -116,12 +116,11 @@ public class Broker {
         private void handoffFish(InetSocketAddress client, HandoffRequest req) {
             clientLock.readLock().lock();
             final int index = clients.indexOf(client);
-            clientLock.readLock().unlock();
-
             ENDPOINT.send(switch (req.getFish().getDirection()) {
                 case LEFT -> clients.getLeftNeighorOf(index);
                 case RIGHT -> clients.getRightNeighorOf(index);
             }, req);
+            clientLock.readLock().unlock();
         }
     }
 
