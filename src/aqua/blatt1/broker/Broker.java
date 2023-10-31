@@ -1,9 +1,6 @@
 package aqua.blatt1.broker;
 
-import aqua.blatt1.common.msgtypes.DeregisterRequest;
-import aqua.blatt1.common.msgtypes.HandoffRequest;
-import aqua.blatt1.common.msgtypes.RegisterRequest;
-import aqua.blatt1.common.msgtypes.RegisterResponse;
+import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.broker.PoisonPill;
 import messaging.Endpoint;
 import messaging.Message;
@@ -31,17 +28,6 @@ public class Broker {
 
     private void broker() {
         var executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-
-        //executor.execute(() -> {
-        //    final int confirmed = JOptionPane.showConfirmDialog(
-        //            null,
-        //            "Close broker?",
-        //            "Broker",
-        //            JOptionPane.OK_CANCEL_OPTION
-        //    );
-        //    if (confirmed == JOptionPane.OK_OPTION)
-        //        stopRequested = true;
-        //});
 
         while (!stopRequested) {
             final Message msg = ENDPOINT.nonBlockingReceive();
@@ -79,8 +65,7 @@ public class Broker {
         public void run() {
             switch (MsgType.valueOf(msg.getPayload())) {
                 case REGISTER -> register(msg.getSender());
-                case DEREGISTER -> deregister(((DeregisterRequest) msg.getPayload()).getId());
-                case HANDOFF -> handoffFish(msg.getSender(), (HandoffRequest) msg.getPayload());
+                case DEREGISTER -> deregister(((DeregisterRequest) msg.getPayload()).id());
                 case POISON -> stopRequested = true;
                 case UNKNOWN ->
                         System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
@@ -89,38 +74,43 @@ public class Broker {
 
         private void register(InetSocketAddress client) {
             clientLock.readLock().lock();
-            final String id = ID_PREFIX + (clients.size() + 1);
+            final int index = clients.size() + 1;
             clientLock.readLock().unlock();
+            final String id = ID_PREFIX + index;
 
             clientLock.writeLock().lock();
             clients.add(id, client);
             clientLock.writeLock().unlock();
 
-            ENDPOINT.send(client, new RegisterResponse(id));
+            clientLock.readLock().lock();
+            final InetSocketAddress leftNeighbor = clients.getLeftNeighorOf(clients.indexOf(client));
+            final InetSocketAddress rightNeighbor = clients.getRightNeighorOf(clients.indexOf(client));
+            clientLock.readLock().unlock();
+
+            ENDPOINT.send(client, new RegisterResponse(id, new NeighborUpdate(leftNeighbor, rightNeighbor)));
+            ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, client));
+            ENDPOINT.send(rightNeighbor, new NeighborUpdate(client, null));
         }
 
         private void deregister(String clientId) {
             clientLock.readLock().lock();
             final int index = clients.indexOf(clientId);
-            clientLock.readLock().unlock();
             if (index == -1) {
                 System.err.println("Client not registered...");
+                clientLock.readLock().unlock();
                 return;
             }
+
+            final InetSocketAddress leftNeighbor = clients.getLeftNeighorOf(index);
+            final InetSocketAddress rightNeighbor = clients.getRightNeighorOf(index);
+            clientLock.readLock().unlock();
 
             clientLock.writeLock().lock();
             clients.remove(index);
             clientLock.writeLock().unlock();
-        }
 
-        private void handoffFish(InetSocketAddress client, HandoffRequest req) {
-            clientLock.readLock().lock();
-            final int index = clients.indexOf(client);
-            ENDPOINT.send(switch (req.getFish().getDirection()) {
-                case LEFT -> clients.getLeftNeighorOf(index);
-                case RIGHT -> clients.getRightNeighorOf(index);
-            }, req);
-            clientLock.readLock().unlock();
+            ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, rightNeighbor));
+            ENDPOINT.send(rightNeighbor, new NeighborUpdate(leftNeighbor, null));
         }
     }
 
