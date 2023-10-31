@@ -20,6 +20,8 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     protected int fishCounter = 0;
     protected InetSocketAddress leftNeighbor;
     protected InetSocketAddress rightNeighbor;
+    protected volatile boolean hasToken = false;
+    protected Timer timer = new Timer();
 
     public TankModel(ClientCommunicator.ClientForwarder forwarder) {
         this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -67,11 +69,15 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
             fish.update();
 
-            if (fish.hitsEdge())
-                forwarder.handOff(fish, switch (fish.getDirection()) {
-                    case LEFT -> leftNeighbor;
-                    case RIGHT -> rightNeighbor;
-                });
+            if (fish.hitsEdge()) {
+                if (hasToken())
+                    forwarder.handOff(fish, switch (fish.getDirection()) {
+                        case LEFT -> leftNeighbor;
+                        case RIGHT -> rightNeighbor;
+                    });
+                else
+                    fish.reverse();
+            }
 
             if (fish.disappears())
                 it.remove();
@@ -98,7 +104,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     }
 
     public synchronized void finish() {
-        forwarder.deregister(id);
+        forwarder.deregister(id, hasToken());
     }
 
     synchronized void updateNeighbors(InetSocketAddress leftNeighbor, InetSocketAddress rightNeighbor) {
@@ -106,5 +112,24 @@ public class TankModel extends Observable implements Iterable<FishModel> {
             this.leftNeighbor = leftNeighbor;
         if (rightNeighbor != null)
             this.rightNeighbor = rightNeighbor;
+    }
+
+    public boolean hasToken() {
+        return hasToken;
+    }
+
+    public synchronized void receiveToken() {
+        final int DELAY = 2000; // 2 seconds
+
+        if (!hasToken)
+            this.timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    hasToken = false;
+                    forwarder.handOffToken(rightNeighbor);
+                }
+            }, DELAY);
+
+        this.hasToken = true;
     }
 }

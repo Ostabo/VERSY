@@ -65,7 +65,8 @@ public class Broker {
         public void run() {
             switch (MsgType.valueOf(msg.getPayload())) {
                 case REGISTER -> register(msg.getSender());
-                case DEREGISTER -> deregister(((DeregisterRequest) msg.getPayload()).id());
+                case DEREGISTER ->
+                        deregister(((DeregisterRequest) msg.getPayload()).id(), ((DeregisterRequest) msg.getPayload()).hadToken());
                 case POISON -> stopRequested = true;
                 case UNKNOWN ->
                         System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
@@ -90,9 +91,12 @@ public class Broker {
             ENDPOINT.send(client, new RegisterResponse(id, new NeighborUpdate(leftNeighbor, rightNeighbor)));
             ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, client));
             ENDPOINT.send(rightNeighbor, new NeighborUpdate(client, null));
+
+            if (index == 1)
+                ENDPOINT.send(client, new Token());
         }
 
-        private void deregister(String clientId) {
+        private void deregister(String clientId, boolean hadToken) {
             clientLock.readLock().lock();
             final int index = clients.indexOf(clientId);
             if (index == -1) {
@@ -111,6 +115,11 @@ public class Broker {
 
             ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, rightNeighbor));
             ENDPOINT.send(rightNeighbor, new NeighborUpdate(leftNeighbor, null));
+
+            clientLock.readLock().lock();
+            if (hadToken && clients.size() > 0)
+                ENDPOINT.send(clients.getClient(0), new Token());
+            clientLock.readLock().unlock();
         }
     }
 

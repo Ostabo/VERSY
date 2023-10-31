@@ -34,12 +34,16 @@ public class ClientCommunicator {
             endpoint.send(broker, new RegisterRequest());
         }
 
-        public void deregister(String id) {
-            endpoint.send(broker, new DeregisterRequest(id));
+        public void deregister(String id, boolean hadToken) {
+            endpoint.send(broker, new DeregisterRequest(id, hadToken));
         }
 
         public void handOff(FishModel fish, InetSocketAddress receiver) {
             endpoint.send(receiver, new HandoffRequest(fish));
+        }
+
+        public void handOffToken(InetSocketAddress receiver) {
+            endpoint.send(receiver, new Token());
         }
     }
 
@@ -66,6 +70,9 @@ public class ClientCommunicator {
                 if (msg.getPayload() instanceof NeighborUpdate)
                     tankModel.updateNeighbors(((NeighborUpdate) msg.getPayload()).leftNeighbor(),
                             ((NeighborUpdate) msg.getPayload()).rightNeighbor());
+
+                if (msg.getPayload() instanceof Token)
+                    tankModel.receiveToken();
             }
             System.out.println("Receiver stopped.");
         }
