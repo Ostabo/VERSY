@@ -7,6 +7,8 @@ import messaging.Endpoint;
 import messaging.Message;
 
 import java.net.InetSocketAddress;
+import java.util.HashSet;
+import java.util.Set;
 
 public class ClientCommunicator {
     private final Endpoint endpoint;
@@ -45,6 +47,16 @@ public class ClientCommunicator {
         public void handOffToken(InetSocketAddress receiver) {
             endpoint.send(receiver, new Token());
         }
+
+        public void sendSnapshotMarker(InetSocketAddress... receivers) {
+            for (InetSocketAddress receiver : receivers) {
+                endpoint.send(receiver, new SnapshotMarker());
+            }
+        }
+
+        public void sendSnapshotResult(Set<FishModel> snapshot, InetSocketAddress receiver) {
+            endpoint.send(receiver, new SnapshotResult(new HashSet<>(snapshot)));
+        }
     }
 
     public class ClientReceiver extends Thread {
@@ -73,6 +85,12 @@ public class ClientCommunicator {
 
                 if (msg.getPayload() instanceof Token)
                     tankModel.receiveToken();
+
+                if (msg.getPayload() instanceof SnapshotMarker)
+                    tankModel.receiveSnapshotMarker(msg.getSender());
+
+                if (msg.getPayload() instanceof SnapshotResult)
+                    tankModel.receiveSnapshotResult(((SnapshotResult) msg.getPayload()).snapshotResult());
             }
             System.out.println("Receiver stopped.");
         }
