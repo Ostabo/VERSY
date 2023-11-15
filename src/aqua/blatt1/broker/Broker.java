@@ -7,6 +7,8 @@ import messaging.Message;
 
 import java.io.Serializable;
 import java.net.InetSocketAddress;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -20,6 +22,7 @@ public class Broker {
 
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
     private final ReadWriteLock clientLock = new ReentrantReadWriteLock();
+    private final Map<String, InetSocketAddress> nameResolutionTable = new HashMap<>();
     private volatile boolean stopRequested = false;
 
     public static void main(String[] args) {
@@ -42,6 +45,7 @@ public class Broker {
         HANDOFF,
         REGISTER,
         POISON,
+        NAMEREQUEST,
         UNKNOWN;
 
         public static MsgType valueOf(Serializable classType) {
@@ -49,6 +53,7 @@ public class Broker {
             if (classType instanceof HandoffRequest) return HANDOFF;
             if (classType instanceof RegisterRequest) return REGISTER;
             if (classType instanceof PoisonPill) return POISON;
+            if (classType instanceof NameResolutionRequest) return NAMEREQUEST;
             return UNKNOWN;
         }
     }
@@ -68,6 +73,13 @@ public class Broker {
                 case DEREGISTER ->
                         deregister(((DeregisterRequest) msg.getPayload()).id(), ((DeregisterRequest) msg.getPayload()).hadToken());
                 case POISON -> stopRequested = true;
+                case NAMEREQUEST -> {
+                    final NameResolutionRequest request = (NameResolutionRequest) msg.getPayload();
+                    ENDPOINT.send(
+                            msg.getSender(),
+                            new NameResolutionResponse(nameResolutionTable.get(request.tankId()), request.reqId())
+                    );
+                }
                 case UNKNOWN ->
                         System.err.println("Unknown message type: " + msg.getPayload().getClass().getSimpleName());
             }
@@ -89,6 +101,7 @@ public class Broker {
             clientLock.readLock().unlock();
 
             ENDPOINT.send(client, new RegisterResponse(id, new NeighborUpdate(leftNeighbor, rightNeighbor)));
+            nameResolutionTable.put(id, client);
             ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, client));
             ENDPOINT.send(rightNeighbor, new NeighborUpdate(client, null));
 

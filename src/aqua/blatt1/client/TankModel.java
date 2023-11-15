@@ -2,6 +2,7 @@ package aqua.blatt1.client;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
+import aqua.blatt1.common.msgtypes.NameResolutionResponse;
 
 import java.net.InetSocketAddress;
 import java.util.*;
@@ -16,7 +17,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     protected static final int MAX_FISHIES = 5;
     protected static final Random rand = new Random();
     protected final Set<FishModel> fishies;
-    protected final Map<String, FishRef> fishRefs = new HashMap<>();
+    protected final Map<String, InetSocketAddress> homeAgent = new HashMap<>();
     protected final ClientCommunicator.ClientForwarder forwarder;
     protected String id;
     protected int fishCounter = 0;
@@ -51,7 +52,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
                     rand.nextBoolean() ? Direction.LEFT : Direction.RIGHT);
 
             fishies.add(fish);
-            fishRefs.put(fishId, FishRef.HERE);
+            homeAgent.put(fishId, null);
         }
     }
 
@@ -62,7 +63,10 @@ public class TankModel extends Observable implements Iterable<FishModel> {
         }
         fish.setToStart();
         fishies.add(fish);
-        fishRefs.put(fish.getId(), FishRef.HERE);
+        if (fish.getTankId().equals(getId()))
+            homeAgent.put(fish.getId(), null);
+        else
+            forwarder.sendNameResolutionRequest(fish.getTankId(), fish.getId());
     }
 
     private void addToSnapshotIfState(SnapshotStates onState, FishModel fish) {
@@ -91,14 +95,8 @@ public class TankModel extends Observable implements Iterable<FishModel> {
             if (fish.hitsEdge()) {
                 if (hasToken())
                     forwarder.handOff(fish, switch (fish.getDirection()) {
-                        case LEFT -> {
-                            fishRefs.put(fish.getId(), FishRef.LEFT);
-                            yield leftNeighbor;
-                        }
-                        case RIGHT -> {
-                            fishRefs.put(fish.getId(), FishRef.RIGHT);
-                            yield rightNeighbor;
-                        }
+                        case LEFT -> leftNeighbor;
+                        case RIGHT -> rightNeighbor;
                     });
                 else
                     fish.reverse();
@@ -216,20 +214,26 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     }
 
     public void locateFishGlobally(String fishId) {
-        switch (fishRefs.get(fishId)) {
-            case HERE -> fishies.stream()
-                    .filter(fish -> fish.getId().equals(fishId))
-                    .findFirst()
-                    .ifPresent(FishModel::toggle);
-            case LEFT -> forwarder.sendLocationRequest(fishId, leftNeighbor);
-            case RIGHT -> forwarder.sendLocationRequest(fishId, rightNeighbor);
-        }
+        final InetSocketAddress tankAddress = homeAgent.get(fishId);
+        if (tankAddress == null)
+            locateFishLocally(fishId);
+        else
+            forwarder.sendLocationRequest(fishId, tankAddress);
     }
 
-    public enum FishRef {
-        HERE,
-        LEFT,
-        RIGHT
+    public void receiveNameResolutionResponse(NameResolutionResponse response) {
+        forwarder.sendLocationUpdate(response.address(), response.reqId());
+    }
+
+    public void receiveLocationUpdate(InetSocketAddress sender, String reqId) {
+        homeAgent.put(reqId, sender);
+    }
+
+    public void locateFishLocally(String fishId) {
+        fishies.stream()
+                .filter(fish -> fish.getId().equals(fishId))
+                .findFirst()
+                .ifPresent(FishModel::toggle);
     }
 
     private enum SnapshotStates {
