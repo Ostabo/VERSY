@@ -7,8 +7,8 @@ import messaging.Message;
 
 import java.io.Serializable;
 import java.net.InetSocketAddress;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -19,10 +19,11 @@ public class Broker {
     private static final int PORT = 4711;
     private static final Endpoint ENDPOINT = new Endpoint(PORT);
     private static final String ID_PREFIX = "tank";
-
+    final int leaseDuration = 10000; // 10 seconds
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
     private final ReadWriteLock clientLock = new ReentrantReadWriteLock();
     private final Map<String, InetSocketAddress> nameResolutionTable = new HashMap<>();
+    private final Timer timer = new Timer();
     private volatile boolean stopRequested = false;
 
     public static void main(String[] args) {
@@ -32,10 +33,22 @@ public class Broker {
     private void broker() {
         var executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
+        final boolean[] addCleanupTask = {true};
+
         while (!stopRequested) {
             final Message msg = ENDPOINT.nonBlockingReceive();
             if (msg != null)
                 executor.execute(new BrokerTask(msg));
+            if (addCleanupTask[0]) {
+                executor.execute(new CleanupTask(executor));
+                addCleanupTask[0] = false;
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        addCleanupTask[0] = true;
+                    }
+                }, leaseDuration * 2);
+            }
         }
         executor.shutdown();
     }
@@ -55,6 +68,31 @@ public class Broker {
             if (classType instanceof PoisonPill) return POISON;
             if (classType instanceof NameResolutionRequest) return NAMEREQUEST;
             return UNKNOWN;
+        }
+    }
+
+    public class CleanupTask implements Runnable {
+
+        ExecutorService executor;
+
+        public CleanupTask(ExecutorService executor) {
+            this.executor = executor;
+        }
+
+        @Override
+        public void run() {
+            cleanup();
+        }
+
+        private void cleanup() {
+            clientLock.readLock().lock();
+            List<String> toClean = clients.collectToClean(System.currentTimeMillis() - leaseDuration);
+            clientLock.readLock().unlock();
+            toClean.forEach(id -> executor.execute(
+                    new BrokerTask(
+                            new Message(new DeregisterRequest(id, false), nameResolutionTable.get(id)
+                            )
+                    )));
         }
     }
 
@@ -87,12 +125,16 @@ public class Broker {
 
         private void register(InetSocketAddress client) {
             clientLock.readLock().lock();
-            final int index = clients.size() + 1;
+            final int index = clients.indexOf(client) != -1 ? clients.indexOf(client) + 1 : clients.size() + 1;
             clientLock.readLock().unlock();
             final String id = ID_PREFIX + index;
 
             clientLock.writeLock().lock();
-            clients.add(id, client);
+            int ind = clients.indexOf(id);
+            if (ind != -1)
+                clients.updateTimestamp(ind, id);
+            else
+                clients.add(id, client);
             clientLock.writeLock().unlock();
 
             clientLock.readLock().lock();
@@ -100,7 +142,7 @@ public class Broker {
             final InetSocketAddress rightNeighbor = clients.getRightNeighorOf(clients.indexOf(client));
             clientLock.readLock().unlock();
 
-            ENDPOINT.send(client, new RegisterResponse(id, new NeighborUpdate(leftNeighbor, rightNeighbor)));
+            ENDPOINT.send(client, new RegisterResponse(id, new NeighborUpdate(leftNeighbor, rightNeighbor), leaseDuration));
             nameResolutionTable.put(id, client);
             ENDPOINT.send(leftNeighbor, new NeighborUpdate(null, client));
             ENDPOINT.send(rightNeighbor, new NeighborUpdate(client, null));

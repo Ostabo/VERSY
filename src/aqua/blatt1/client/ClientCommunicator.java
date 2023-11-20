@@ -86,7 +86,8 @@ public class ClientCommunicator {
                 if (msg.getPayload() instanceof RegisterResponse)
                     tankModel.onRegistration(((RegisterResponse) msg.getPayload()).id(),
                             ((RegisterResponse) msg.getPayload()).neighborUpdate().leftNeighbor(),
-                            ((RegisterResponse) msg.getPayload()).neighborUpdate().rightNeighbor());
+                            ((RegisterResponse) msg.getPayload()).neighborUpdate().rightNeighbor(),
+                            ((RegisterResponse) msg.getPayload()).leaseDuration());
 
                 if (msg.getPayload() instanceof HandoffRequest)
                     tankModel.receiveFish(((HandoffRequest) msg.getPayload()).fish());
