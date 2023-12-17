@@ -2,6 +2,7 @@ package aqua.blatt1.broker;
 
 import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.broker.PoisonPill;
+import aqua.blatt7.endpoint.SecureEndpoint;
 import messaging.Endpoint;
 import messaging.Message;
 
@@ -17,7 +18,7 @@ public class Broker {
 
     private static final int THREAD_POOL_SIZE = 10;
     private static final int PORT = 4711;
-    private static final Endpoint ENDPOINT = new Endpoint(PORT);
+    private static final Endpoint ENDPOINT = new SecureEndpoint(PORT);
     private static final String ID_PREFIX = "tank";
     final int leaseDuration = 10000; // 10 seconds
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();

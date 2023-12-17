@@ -3,6 +3,7 @@ package aqua.blatt1.client;
 import aqua.blatt1.common.FishModel;
 import aqua.blatt1.common.Properties;
 import aqua.blatt1.common.msgtypes.*;
+import aqua.blatt7.endpoint.SecureEndpoint;
 import messaging.Endpoint;
 import messaging.Message;
 
@@ -14,7 +15,7 @@ public class ClientCommunicator {
     private final Endpoint endpoint;
 
     public ClientCommunicator() {
-        endpoint = new Endpoint();
+        endpoint = new SecureEndpoint();
     }
 
     public ClientForwarder newClientForwarder() {
